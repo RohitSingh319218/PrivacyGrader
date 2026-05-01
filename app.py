@@ -57,7 +57,7 @@ if st.button("Run Privacy Audit"):
         try:
             genai.configure(api_key=api_key)
             # Using the fast, efficient flash model
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-pro')
             
             prompt = f"""
             Act as an expert Data Privacy Auditor. Review the following privacy policy text scraped from a website and grade it based on the specific rubric below. 
