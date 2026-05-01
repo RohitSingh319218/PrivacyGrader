@@ -11,11 +11,10 @@ st.title("🛡️ Jurisdictional Privacy Auditor")
 st.markdown("Scan any domain for privacy compliance gaps based on specific regional data protection laws.")
 
 # --- MAIN INTERFACE ---
-# Put the URL and Dropdown side-by-side using columns
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    url_input = st.text_input("Website or Privacy Policy URL", placeholder="https://www.example.com", label_visibility="collapsed")
+    url_input = st.text_input("Website or Privacy Policy URL", placeholder="example.com", label_visibility="collapsed")
 with col2:
     framework = st.selectbox(
         "Regulatory Framework", 
@@ -24,9 +23,16 @@ with col2:
     )
 
 if st.button("Run Compliance Audit"):
-    if not url_input.startswith("http"):
-        st.warning("⚠️ Please enter a valid URL starting with http:// or https://")
+    
+    # --- NEW URL CLEANER ---
+    url_input = url_input.strip()
+    if not url_input:
+        st.warning("⚠️ Please enter a domain or URL to begin.")
         st.stop()
+        
+    # If the user forgot http:// or https://, add it automatically
+    if not url_input.startswith("http://") and not url_input.startswith("https://"):
+        url_input = "https://" + url_input
 
     # 2. Web Scraping & Auto-Discovery
     with st.spinner(f"Hunting for policy and preparing for {framework} audit..."):
@@ -59,7 +65,7 @@ if st.button("Run Compliance Audit"):
                 st.warning("⚠️ The scraped text is very short. Ensure this is the actual policy.")
 
         except Exception as e:
-            st.error(f"Failed to scrape the URL. Error: {e}")
+            st.error(f"Failed to scrape the URL. Ensure the website exists. Error: {e}")
             st.stop()
 
     # 3. AI Analysis & Dynamic Scoring
@@ -69,8 +75,6 @@ if st.button("Run Compliance Audit"):
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel('gemini-2.5-flash')
             
-            # --- DYNAMIC PROMPT ENGINEERING ---
-            # We inject specific legal focus areas based on the dropdown choice
             framework_instructions = {
                 "Universal": "Evaluate based on general global privacy best practices.",
                 "GDPR (Europe)": "Evaluate STRICTLY against the General Data Protection Regulation (GDPR). You must actively look for and flag missing explicit opt-in consent, Right to be Forgotten mechanisms, 72-hour breach notification policies, and Data Protection Officer (DPO) contact details.",
