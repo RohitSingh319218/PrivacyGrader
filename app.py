@@ -9,24 +9,11 @@ st.set_page_config(page_title="Privacy Automated Grader", page_icon="🛡️", l
 st.title("🛡️ Website Privacy Automated Grader")
 st.markdown("Enter the URL of a website's privacy policy. The AI will scrape the text and grade it based on standard compliance pillars (Transparency, Consent, Data Minimization, and User Rights).")
 
-# --- SIDEBAR (API KEY) ---
-with st.sidebar:
-    st.header("Configuration")
-    st.markdown("To keep this tool free, it uses your personal Gemini API key.")
-    api_key = st.text_input("Enter Gemini API Key", type="password")
-    st.markdown("[Get a free Gemini API key here](https://aistudio.google.com/app/apikey)")
-    
-    st.divider()
-    st.caption("This tool relies on public signals and policy text analysis. It does not perform back-end penetration testing.")
-
 # --- MAIN INTERFACE ---
 url_input = st.text_input("Privacy Policy URL", placeholder="https://www.example.com/privacy-policy")
 
 if st.button("Run Privacy Audit"):
     # 1. Validation Checks
-    if not api_key:
-        st.warning("⚠️ Please enter your Gemini API Key in the sidebar to run the analysis.")
-        st.stop()
     if not url_input.startswith("http"):
         st.warning("⚠️ Please enter a valid URL starting with http:// or https://")
         st.stop()
@@ -34,18 +21,14 @@ if st.button("Run Privacy Audit"):
     # 2. Web Scraping
     with st.spinner("Scraping website text..."):
         try:
-            # Use a generic User-Agent so websites don't immediately block the request
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
             response = requests.get(url_input, headers=headers, timeout=15)
-            response.raise_for_status() # Check for 404 or 500 errors
+            response.raise_for_status() 
             
-            # Parse HTML and extract plain text
             soup = BeautifulSoup(response.content, 'html.parser')
             for script in soup(["script", "style", "nav", "footer"]):
-                script.extract() # Remove code and navigation menus
+                script.extract() 
             scraped_text = soup.get_text(separator=' ', strip=True)
-            
-            # Truncate text slightly to ensure it fits in standard token limits
             scraped_text = scraped_text[:40000] 
             
         except Exception as e:
@@ -55,9 +38,12 @@ if st.button("Run Privacy Audit"):
     # 3. AI Analysis & Scoring
     with st.spinner("AI is auditing the policy against the tracker rubric..."):
         try:
+            # FETCHING THE KEY FROM THE SECRETS VAULT
+            api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
-            # Using the fast, efficient flash model
-            model = genai.GenerativeModel('gemini-pro')
+            
+            # THE FIX: Using the active, supported model
+            model = genai.GenerativeModel('gemini-2.5-flash')
             
             prompt = f"""
             Act as an expert Data Privacy Auditor. Review the following privacy policy text scraped from a website and grade it based on the specific rubric below. 
@@ -92,5 +78,7 @@ if st.button("Run Privacy Audit"):
             st.markdown("---")
             st.markdown(response.text)
 
+        except KeyError:
+            st.error("⚠️ API Key Error: The app couldn't find the key. Ensure you saved it in Streamlit's settings as GEMINI_API_KEY.")
         except Exception as e:
-            st.error(f"AI Analysis failed. Check your API key. Error: {e}")
+            st.error(f"AI Analysis failed. Error: {e}")
