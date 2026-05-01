@@ -1,84 +1,123 @@
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
+import urllib.parse
 import google.generativeai as genai
 
 # --- UI CONFIGURATION ---
-st.set_page_config(page_title="Privacy Automated Grader", page_icon="🛡️", layout="centered")
+st.set_page_config(page_title="Jurisdictional Privacy Auditor", page_icon="🛡️", layout="centered")
 
-st.title("🛡️ Website Privacy Automated Grader")
-st.markdown("Enter the URL of a website's privacy policy. The AI will scrape the text and grade it based on standard compliance pillars (Transparency, Consent, Data Minimization, and User Rights).")
+st.title("🛡️ Jurisdictional Privacy Auditor")
+st.markdown("Scan any domain for privacy compliance gaps based on specific regional data protection laws.")
 
 # --- MAIN INTERFACE ---
-url_input = st.text_input("Privacy Policy URL", placeholder="https://www.example.com/privacy-policy")
+# Put the URL and Dropdown side-by-side using columns
+col1, col2 = st.columns([3, 1])
 
-if st.button("Run Privacy Audit"):
-    # 1. Validation Checks
+with col1:
+    url_input = st.text_input("Website or Privacy Policy URL", placeholder="https://www.example.com", label_visibility="collapsed")
+with col2:
+    framework = st.selectbox(
+        "Regulatory Framework", 
+        ["Universal", "GDPR (Europe)", "DPDPA (India)", "PDPL (Middle East)", "HIPAA (US Health)"],
+        label_visibility="collapsed"
+    )
+
+if st.button("Run Compliance Audit"):
     if not url_input.startswith("http"):
         st.warning("⚠️ Please enter a valid URL starting with http:// or https://")
         st.stop()
 
-    # 2. Web Scraping
-    with st.spinner("Scraping website text..."):
+    # 2. Web Scraping & Auto-Discovery
+    with st.spinner(f"Hunting for policy and preparing for {framework} audit..."):
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
             response = requests.get(url_input, headers=headers, timeout=15)
             response.raise_for_status() 
-            
             soup = BeautifulSoup(response.content, 'html.parser')
-            for script in soup(["script", "style", "nav", "footer"]):
+
+            target_url = url_input
+            if url_input.count('/') <= 3 or url_input.endswith('/'):
+                privacy_tag = soup.find('a', string=lambda text: text and 'privacy' in text.lower())
+                if not privacy_tag: 
+                    privacy_tag = soup.find('a', href=lambda href: href and 'privacy' in href.lower())
+                
+                if privacy_tag and privacy_tag.has_attr('href'):
+                    target_url = urllib.parse.urljoin(url_input, privacy_tag['href'])
+                    st.info(f"🔍 Auto-detected Policy: {target_url}")
+                    
+                    response = requests.get(target_url, headers=headers, timeout=15)
+                    response.raise_for_status()
+                    soup = BeautifulSoup(response.content, 'html.parser')
+
+            for script in soup(["script", "style", "nav", "footer", "header"]):
                 script.extract() 
             scraped_text = soup.get_text(separator=' ', strip=True)
             scraped_text = scraped_text[:40000] 
-            
+
+            if len(scraped_text) < 300:
+                st.warning("⚠️ The scraped text is very short. Ensure this is the actual policy.")
+
         except Exception as e:
-            st.error(f"Failed to scrape the URL. The website might have bot-protection. Error: {e}")
+            st.error(f"Failed to scrape the URL. Error: {e}")
             st.stop()
 
-    # 3. AI Analysis & Scoring
-    with st.spinner("AI is auditing the policy against the tracker rubric..."):
+    # 3. AI Analysis & Dynamic Scoring
+    with st.spinner(f"AI is auditing against {framework} requirements..."):
         try:
-            # FETCHING THE KEY FROM THE SECRETS VAULT
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
-            
-            # THE FIX: Using the active, supported model
             model = genai.GenerativeModel('gemini-2.5-flash')
             
-            prompt = f"""
-            Act as an expert Data Privacy Auditor. Review the following privacy policy text scraped from a website and grade it based on the specific rubric below. 
+            # --- DYNAMIC PROMPT ENGINEERING ---
+            # We inject specific legal focus areas based on the dropdown choice
+            framework_instructions = {
+                "Universal": "Evaluate based on general global privacy best practices.",
+                "GDPR (Europe)": "Evaluate STRICTLY against the General Data Protection Regulation (GDPR). You must actively look for and flag missing explicit opt-in consent, Right to be Forgotten mechanisms, 72-hour breach notification policies, and Data Protection Officer (DPO) contact details.",
+                "DPDPA (India)": "Evaluate STRICTLY against India's Digital Personal Data Protection Act (DPDPA). You must actively look for and flag missing verifiable parental consent for children, mentions of Consent Managers, duties of Data Principals, and clear notice requirements.",
+                "PDPL (Middle East)": "Evaluate STRICTLY against the Saudi/Middle Eastern Personal Data Protection Laws (PDPL). You must actively look for explicit consent requirements and details regarding cross-border data transfers and data localization.",
+                "HIPAA (US Health)": "Evaluate STRICTLY against the Health Insurance Portability and Accountability Act (HIPAA). You must actively look for Notice of Privacy Practices (NPP), Business Associate Agreements (BAAs), and strict protections for Protected Health Information (PHI)."
+            }
             
+            specific_instruction = framework_instructions[framework]
+            
+            prompt = f"""
+            Act as an expert Data Privacy Auditor and Legal Analyst. Review the following privacy policy text.
+            
+            YOUR OBJECTIVE: 
+            Audit this text specifically for compliance with: {framework}.
+            {specific_instruction}
+
             SCORING SYSTEM:
-            0 = Not mentioned or highly non-compliant
-            2 = Partially mentioned, vague, or unclear
-            4 = Fully compliant, explicitly stated, and easy to understand
+            0 = Missing, highly non-compliant, or violates the specified framework.
+            2 = Vague, partial compliance, or legally ambiguous.
+            4 = Fully compliant, explicit, and legally sound for the specified framework.
 
             RUBRIC CATEGORIES TO CHECK:
-            1. Transparency & Clarity: Are data types clearly explained? Is the purpose explained simply? Is third-party sharing explicitly mentioned?
-            2. Consent & User Choice: Is there a visible reject option? Is age-related consent mentioned?
-            3. Data Collection & Minimization: Is sensitive data explained? 
-            4. Tracking & Third-Party: Is tracking/cookie usage clearly disclosed? Is an opt-out available?
-            5. User Rights & Grievance: Are user rights explained? Is there a clear contact for complaints/DPO?
+            1. Transparency & Lawful Basis: Is the purpose of collection legally justified under the selected framework?
+            2. Consent & User Choice: Are the consent mechanisms compliant with the selected framework's specific strictness (e.g., GDPR opt-in vs universal opt-out)?
+            3. Data Collection & Minimization: Is sensitive data defined and handled correctly according to the selected framework?
+            4. Tracking & Third-Party: Are third-party transfers and cookie compliance clearly disclosed?
+            5. User Rights & Grievance: Are the specific legal rights (e.g., erasure, portability) and mandated grievance officers mentioned?
 
             POLICY TEXT:
             {scraped_text}
 
             INSTRUCTIONS FOR OUTPUT:
-            Provide a clean, professional Markdown report. Do not include the prompt in your response. 
-            Include:
-            - An Overall Score summary.
-            - A breakdown of each of the 5 Rubric Categories. Give each category a score (0, 2, or 4) based on your average assessment of the checks within that category.
-            - Provide a bulleted list of short "Notes" under each category justifying your score based *only* on the text provided.
+            Provide a clean, professional Markdown report.
+            - Include an Overall Score out of 20.
+            - Give a brief executive summary of how it holds up against the {framework}.
+            - Break down the 5 Rubric Categories with scores and bulleted notes justifying the score based on the text and the law.
             """
             
             response = model.generate_content(prompt)
             
             # 4. Display Results
-            st.success("Audit Complete!")
+            st.success(f"{framework} Audit Complete!")
             st.markdown("---")
             st.markdown(response.text)
 
         except KeyError:
-            st.error("⚠️ API Key Error: The app couldn't find the key. Ensure you saved it in Streamlit's settings as GEMINI_API_KEY.")
+            st.error("⚠️ API Key Error: The app couldn't find the key in Streamlit Secrets.")
         except Exception as e:
             st.error(f"AI Analysis failed. Error: {e}")
